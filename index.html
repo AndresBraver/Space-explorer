@@ -117,8 +117,10 @@
   <div class="panel" id="topLeft">
     <div class="label">Escudo</div><div class="barWrap"><div id="shieldBar"></div></div>
     <div class="label" style="margin-top:7px">Vida</div><div class="barWrap"><div id="healthBar"></div></div>
+    <div class="label" style="margin-top:7px">Gasolina</div><div class="barWrap"><div id="fuelBar" style="height:100%;width:100%;background:linear-gradient(90deg,#ffd24a,#ff7b2d);box-shadow:0 0 12px rgba(255,210,74,.6)"></div></div>
   </div>
-  <div class="panel credits" id="topRight"><div class="label">Créditos</div><div class="big" id="creditsVal">0</div></div>
+  <div class="panel credits" id="topRight"><div class="label">Créditos</div><div class="big" id="creditsVal">0</div>
+    <div class="label" style="margin-top:6px">🔫 <span id="ammoVal">40</span> · 💣 <span id="bombVal">2</span></div></div>
   <div class="panel" id="mission">
     <div class="label">Misiones</div><div id="missionText">—</div><div id="missionProg"></div>
     <div id="storyLine">★ Historia: —</div>
@@ -233,12 +235,12 @@ const sfx={laser:()=>beep(680,0.12,'square',0.05,180),blaster:()=>beep(420,0.1,'
   warp:()=>beep(220,0.7,'sine',0.08,1400),win:()=>{beep(523,0.15,'sine',0.07);setTimeout(()=>beep(659,0.15,'sine',0.07),140);setTimeout(()=>beep(784,0.3,'sine',0.08),300);}};
 
 /* ---------- ESTADO DEL JUGADOR ---------- */
-const P={health:100,maxHealth:100,shield:100,maxShield:100,lastHit:-9999};
+const P={health:100,maxHealth:100,shield:100,maxShield:100,fuel:100,maxFuel:100,lastHit:-9999};
 let credits=0,kills=0,missionsDone=0;
 let visited=new Set(),discovered=new Set();
 let galaxy=1;
 let wanted=0,wantedTimer=0;
-const inv={crystal:0,core:0,food:0,bomb:2};
+const inv={crystal:0,core:0,food:0,bomb:2,ammo:40};
 const SELL={crystal:20,core:15};
 const upgrades={shield:0,engine:0,cannon:0,collector:0};
 const UPG_DEFS=[
@@ -248,10 +250,10 @@ const UPG_DEFS=[
   {key:'collector',icon:'🧲',name:'Recolector',desc:'Recoges desde más lejos.',base:120}];
 const MAXLVL=4;
 const SHIPS=[
-  {name:'Explorador I',price:0,shield:100,speed:320,fire:0.16},
-  {name:'Halcón Veloz',price:700,shield:130,speed:400,fire:0.14},
-  {name:'Crucero Vesper',price:1600,shield:210,speed:340,fire:0.13},
-  {name:'Caza de Asalto',price:3200,shield:170,speed:470,fire:0.10}];
+  {name:'Explorador I',price:0,shield:100,speed:320,fire:0.16,color:0xc8d8ff,shape:'cone'},
+  {name:'Halcón Veloz',price:700,shield:130,speed:400,fire:0.14,color:0x66ffcc,shape:'dart'},
+  {name:'Crucero Vesper',price:1600,shield:210,speed:340,fire:0.13,color:0xff9bd6,shape:'wide'},
+  {name:'Caza de Asalto',price:3200,shield:170,speed:470,fire:0.10,color:0xffc24a,shape:'dart'}];
 let ownedShips=new Set([0]),curShip=0;
 let suitColor=0xffd24a;
 const SUIT_COLORS=[0xffd24a,0x22e9ff,0xff2d95,0x2bff9b,0x7c8cff,0xffffff];
@@ -398,18 +400,32 @@ function buildStars(){[[8000,1.8,0xffffff],[5000,2.6,0x9fd0ff],[3000,3.6,0xffd9a
 function buildNebulae(){const cols=['rgba(124,140,255,1)','rgba(255,45,149,1)','rgba(34,233,255,1)','rgba(255,123,45,1)'];
   for(let i=0;i<10;i++){const s=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture(cols[i%cols.length]),blending:THREE.AdditiveBlending,transparent:true,opacity:.16,depthWrite:false}));
     s.position.set(rand(-5500,5500),rand(-2400,2400),rand(-5500,5500));s.scale.setScalar(rand(1500,3400));spaceScene.add(s);}}
-function makeShipModel(tint){const g=new THREE.Group();
+function makeShipModel(tint,shape){const g=new THREE.Group();
   const hull=new THREE.MeshStandardMaterial({color:tint||0xc8d8ff,metalness:.7,roughness:.3});
   const acc=new THREE.MeshStandardMaterial({color:0x22e9ff,metalness:.5,roughness:.4,emissive:0x0a4a5a,emissiveIntensity:.6});
-  const body=new THREE.Mesh(new THREE.ConeGeometry(2.4,9,18),hull);body.rotation.x=-Math.PI/2;g.add(body);
+  let body;
+  if(shape==='dart'){body=new THREE.Mesh(new THREE.ConeGeometry(1.7,13,12),hull);body.rotation.x=-Math.PI/2;}
+  else if(shape==='wide'){body=new THREE.Mesh(new THREE.SphereGeometry(3.2,16,12),hull);body.scale.set(1.4,.7,1.7);}
+  else{body=new THREE.Mesh(new THREE.ConeGeometry(2.4,9,18),hull);body.rotation.x=-Math.PI/2;}
+  g.add(body);
   const cab=new THREE.Mesh(new THREE.SphereGeometry(1.5,16,16),new THREE.MeshStandardMaterial({color:0x0a1430,metalness:.3,roughness:.1,emissive:0x22e9ff,emissiveIntensity:.4}));
   cab.position.set(0,.8,1);cab.scale.set(1,.7,1.6);g.add(cab);
-  [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(5,.4,3.4),acc);w.position.set(s*3.4,0,2.4);w.rotation.z=s*.18;g.add(w);
+  const wingW=shape==='wide'?7:(shape==='dart'?4:5),wingZ=shape==='dart'?3.2:2.4;
+  [-1,1].forEach(s=>{const w=new THREE.Mesh(new THREE.BoxGeometry(wingW,.4,3.4),acc);w.position.set(s*(wingW*0.68),0,wingZ);w.rotation.z=s*.18;g.add(w);
     const eng=new THREE.Mesh(new THREE.CylinderGeometry(.9,.6,1.6,12),new THREE.MeshStandardMaterial({color:0x223,metalness:.8,roughness:.4}));
     eng.rotation.x=Math.PI/2;eng.position.set(s*1.6,0,4.6);g.add(eng);});
   return g;}
-function buildShip(){ship=makeShipModel();const eg=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(120,220,255,1)'),blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));
+function buildShip(){ship=makeShipModel(SHIPS[curShip].color,SHIPS[curShip].shape);const eg=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(120,220,255,1)'),blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));
   eg.position.set(0,0,6.5);eg.scale.setScalar(11);ship.add(eg);ship.userData.engineGlow=eg;ship.position.set(0,0,500);spaceScene.add(ship);}
+function rebuildShipVisual(){
+  const pos=ship?ship.position.clone():V3(0,0,500),q=ship?ship.quaternion.clone():new THREE.Quaternion();
+  if(ship)spaceScene.remove(ship);
+  ship=makeShipModel(SHIPS[curShip].color,SHIPS[curShip].shape);
+  const eg=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(120,220,255,1)'),blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));
+  eg.position.set(0,0,6.5);eg.scale.setScalar(11);ship.add(eg);ship.userData.engineGlow=eg;
+  ship.position.copy(pos);ship.quaternion.copy(q);spaceScene.add(ship);
+  if(surfShip){const sp=surfShip.position.clone();surfScene.remove(surfShip);surfShip=makeShipModel(SHIPS[curShip].color,SHIPS[curShip].shape);surfShip.scale.setScalar(1.5);surfShip.rotation.x=-0.15;surfShip.position.copy(sp);surfScene.add(surfShip);}
+}
 function buildPlanets(){
   planets.forEach(p=>spaceScene.remove(p));planets=[];moons.length=0;
   const used=[];
@@ -436,15 +452,19 @@ let _nameBag=null,_botBag=null,_nameCount=0;
 function shuffle(a){a=a.slice();for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
 function uniqueOrgName(){if(!_nameBag||_nameBag.length===0)_nameBag=shuffle(ORG_FIRST);const f=_nameBag.pop();const t=ORG_TITLE[Math.floor(Math.random()*ORG_TITLE.length)];return t+" "+f;}
 function uniqueBotName(){if(!_botBag||_botBag.length===0)_botBag=shuffle(BOT_PRE);const p=_botBag.pop();return "Unidad "+p+"-"+(10+Math.floor(Math.random()*89));}
+const NPC_COLORS=[0x2bff9b,0x22e9ff,0xff2d95,0xffd24a,0x7c8cff,0xff7b2d,0x9bff5a,0xff5a4a,0xb84aff,0xeae6ff];
+const NPC_LINES=["¡Qué bueno verte por aquí!","Los tiempos son peligrosos, viajero.","Necesito una mano con algo.","¿Vienes de parte de la Flota?","Cuidado con las naves de Xandar.","Tengo trabajo para alguien valiente.","No todos los días llega un piloto así.","Si me ayudas, te recompensaré bien.","La galaxia ya no es segura.","Bienvenido a mi mundo, forastero."];
+const BOT_LINES=["CONSULTA REGISTRADA. Tengo una tarea.","SALUDOS, UNIDAD ORGÁNICA.","PROCESANDO... necesito ayuda.","DETECTO UN PILOTO CAPAZ.","MISIÓN DISPONIBLE PARA TI.","BEEP. ¿Aceptas una tarea?"];
 function makePlanetNPCs(planetIdx){
   const list=[];const cnt=2;
   for(let k=0;k<cnt;k++){
-    // Aurelia (0), primer personaje = Capitana Vela (orgánico) para la historia
-    if(planetIdx===0&&k===0){list.push({robot:false,face:"👩‍🚀",name:"Capitana Vela",role:"Mando de la Flota"});continue;}
+    if(planetIdx===0&&k===0){list.push({robot:false,face:"👩‍🚀",name:"Capitana Vela",role:"Mando de la Flota",color:0x2bff9b,line:NPC_LINES[0]});continue;}
     const robot=Math.random()<0.4;
     list.push({robot,
       face:robot?"🤖":FACES_ORG[(_nameCount++)%FACES_ORG.length],
       name:robot?uniqueBotName():uniqueOrgName(),
+      color:NPC_COLORS[Math.floor(Math.random()*NPC_COLORS.length)],
+      line:robot?BOT_LINES[Math.floor(Math.random()*BOT_LINES.length)]:NPC_LINES[Math.floor(Math.random()*NPC_LINES.length)],
       role:robot?"Robot de servicio":(PLANET_DEFS[planetIdx].faction==='enemigo'?"Súbdito de Xandar":(PLANET_DEFS[planetIdx].faction==='aliado'?"Aliado de la Flota":"Habitante"))});
   }
   return list;
@@ -541,13 +561,17 @@ function makePerson(color,robot){
   const body=new THREE.Mesh(robot?new THREE.BoxGeometry(7,9,5):new THREE.CylinderGeometry(3.4,4,9,12),suit);body.position.y=8;g.add(body);
   if(robot){
     const head=new THREE.Mesh(new THREE.BoxGeometry(5.5,5,5),new THREE.MeshStandardMaterial({color:0x9fb0c8,metalness:.7,roughness:.3}));head.position.y=15;g.add(head);
-    const eye=new THREE.Mesh(new THREE.BoxGeometry(4,1.4,.6),new THREE.MeshStandardMaterial({color:0x22e9ff,emissive:0x22e9ff,emissiveIntensity:1}));eye.position.set(0,15.5,2.6);g.add(eye);
+    const eye=new THREE.Mesh(new THREE.BoxGeometry(4,1.4,.6),new THREE.MeshStandardMaterial({color:0x22e9ff,emissive:0x22e9ff,emissiveIntensity:1}));eye.position.set(0,15.8,2.6);g.add(eye);
+    const mouth=new THREE.Mesh(new THREE.BoxGeometry(3,.5,.5),new THREE.MeshStandardMaterial({color:0x22e9ff,emissive:0x22e9ff,emissiveIntensity:.7}));mouth.position.set(0,14,2.6);g.add(mouth);
     const ant=new THREE.Mesh(new THREE.CylinderGeometry(.3,.3,4,6),suit);ant.position.set(0,19,0);g.add(ant);
     const ball=new THREE.Mesh(new THREE.SphereGeometry(.9,8,8),new THREE.MeshStandardMaterial({color:0xff5a4a,emissive:0xff5a4a,emissiveIntensity:1}));ball.position.set(0,21,0);g.add(ball);
   }else{
     const head=new THREE.Mesh(new THREE.SphereGeometry(3.4,16,16),new THREE.MeshStandardMaterial({color:0xeaf4ff,metalness:.2,roughness:.2}));head.position.y=15.5;g.add(head);
-    const visor=new THREE.Mesh(new THREE.SphereGeometry(2.6,16,16,0,Math.PI),new THREE.MeshStandardMaterial({color:0x0a1430,metalness:.5,roughness:.1,emissive:0x22e9ff,emissiveIntensity:.4}));visor.position.set(0,15.5,2);visor.rotation.y=Math.PI;g.add(visor);
-    [-1,1].forEach(s=>{const eye=new THREE.Mesh(new THREE.SphereGeometry(.5,8,8),new THREE.MeshStandardMaterial({color:0x22e9ff,emissive:0x22e9ff,emissiveIntensity:.8}));eye.position.set(s*0.9,15.7,3.6);g.add(eye);});
+    const visor=new THREE.Mesh(new THREE.SphereGeometry(2.6,16,16,0,Math.PI),new THREE.MeshStandardMaterial({color:0x0a1430,metalness:.5,roughness:.1,emissive:color,emissiveIntensity:.3}));visor.position.set(0,15.8,2);visor.rotation.y=Math.PI;g.add(visor);
+    [-1,1].forEach(s=>{const eye=new THREE.Mesh(new THREE.SphereGeometry(.55,10,10),new THREE.MeshStandardMaterial({color:0xffffff,emissive:0x9fe8ff,emissiveIntensity:.9}));eye.position.set(s*0.95,16,3.5);g.add(eye);
+      const pupil=new THREE.Mesh(new THREE.SphereGeometry(.25,8,8),new THREE.MeshBasicMaterial({color:0x07112a}));pupil.position.set(s*0.95,16,4);g.add(pupil);
+      const brow=new THREE.Mesh(new THREE.BoxGeometry(1.2,.3,.3),new THREE.MeshStandardMaterial({color:0x223}));brow.position.set(s*0.95,17,3.6);g.add(brow);});
+    const mouth=new THREE.Mesh(new THREE.BoxGeometry(1.6,.4,.4),new THREE.MeshStandardMaterial({color:0x6a3a3a}));mouth.position.set(0,14.4,3.4);g.add(mouth);
   }
   const pack=new THREE.Mesh(new THREE.BoxGeometry(5,6,2.6),new THREE.MeshStandardMaterial({color:0x556,metalness:.5,roughness:.5}));pack.position.set(0,9,-3.2);g.add(pack);
   const legs=[];[-1,1].forEach(s=>{const leg=new THREE.Mesh(new THREE.CylinderGeometry(1.4,1.4,6,8),suit);leg.position.set(s*1.8,1.5,0);g.add(leg);legs.push(leg);});
@@ -565,11 +589,11 @@ function themeSurface(idx,moon){
   // colorear NPCs según planeta y actualizar etiquetas con personajes
   const npcs=planets[idx].userData.npcs;
   surfNPCObjs.forEach((no,k)=>{
-    // reconstruir tipo robot/orgánico
     surfScene.remove(no.obj);
-    const o=makePerson(npcs[k].robot?0x9fb0c8:def.color,npcs[k].robot);o.position.copy(no.objPos||V3(k===0?-60:60,0,80));
-    if(!no.objPos)no.objPos=o.position.clone();surfScene.add(o);no.obj=o;
-    no.label.material.map=labelTexture((npcs[k].robot?'🤖 ':'')+npcs[k].name,rgbStr(npcs[k].robot?0x9fb0c8:def.color));no.label.material.map.needsUpdate=true;
+    const npc=npcs[k];const col=npc.robot?0x9fb0c8:npc.color;
+    const o=makePerson(col,npc.robot);o.position.copy(no.objPos||V3(k===0?-60:60,0,80));
+    if(!no.objPos)no.objPos=o.position.clone();surfScene.add(o);no.obj=o;no.dead=false;o.visible=true;no.label.visible=true;
+    no.label.material.map=labelTexture((npc.robot?'🤖 ':'')+npc.name,rgbStr(col));no.label.material.map.needsUpdate=true;
   });
   astro.children.forEach(c=>{if(c.material&&c.material.color&&c.geometry&&c.geometry.type.indexOf('Cylinder')>=0&&c.position.y>3)c.material.color.setHex(suitColor);});
   surfCores.forEach(c=>{const a=rand(0,7),d=rand(220,GROUND_R-60);c.position.set(Math.cos(a)*d,6,Math.sin(a)*d);});
@@ -623,7 +647,7 @@ function advanceStory(){
 }
 function storySpawnXandar(){const need=STORY[storyStep];if(need&&need.kind==='xandar'){const alive=enemies.filter(e=>e.userData.faction==='xandar').length;
   if(alive<3&&Math.random()<0.012)spawnEnemy('xandar');}}
-function grantCompanion(){if(companions.length>0)return;toast('🤖 ¡Conseguiste un robot compañero!');}
+function grantCompanion(){if(companions.length>0)return;toast('🤖 ¡Robot compañero! Te sigue, dispara a los enemigos en tierra y recoge núcleos cercanos.');}
 
 /* ============================================================
    DIÁLOGOS (con opciones sí/no)
@@ -649,8 +673,7 @@ function talkTo(npcIdx){
   }
   // misión normal
   const offer=makeMissionFor(planets[surfPlanetIndex],npcIdx);
-  const line=def.faction==='enemigo'?"Eres un intruso... pero el oro es oro. Haz esto y te pagaré.":
-    (npc.robot?"CONSULTA REGISTRADA. Tengo una tarea para ti, viajero.":"¡Hola, viajero! ¿Te interesa un encargo?");
+  const line=def.faction==='enemigo'?"Eres un intruso... pero el oro es oro. Haz esto y te pagaré.":(npc.line||"¡Hola, viajero!");
   showDialog(npc.face,npc.name,npc.role,line+"  ·  "+offer.desc+"  (Recompensa "+offer.reward+"⬡)",[
     {label:'Sí, acepto la misión',fn:()=>{if(addMission(offer))toast('Misión aceptada');closeDialog();}},
     {label:'No, gracias',alt:true,fn:closeDialog}]);
@@ -696,9 +719,12 @@ function openShop(kind){
       d.onclick=()=>{suitColor=c;applySuit();openShop('clothes');};w.appendChild(d);});
   }else if(kind==='arms'){
     row('💣','Bomba','Destruye lunas y enemigos. Tienes: '+inv.bomb,'<button class="rBuy" data-act="buybomb">120 ⬡</button>');
+    row('🔫','Munición +40','Balas para los cañones de tu nave. Tienes: '+inv.ammo,'<button class="rBuy" data-act="buyammo">50 ⬡</button>');
+    row('⛽','Gasolina (llenar)','Llena el tanque de tu nave.','<button class="rBuy" data-act="buyfuel">60 ⬡</button>');
     row('🚓','Soborno','Reduce 1 estrella de "Se busca".',wanted>0?'<button class="rBuy cyan" data-act="bribe">200 ⬡</button>':'<div class="rBuy maxed">LIMPIO</div>');
   }else if(kind==='base'){
     row('🛏️','Descansar','Recupera toda la vida y escudo.','<button class="rBuy cyan" data-act="rest">Descansar</button>');
+    row('⛽','Repostar y rearmar','Llena gasolina y +30 balas (gratis, es tu garaje).','<button class="rBuy cyan" data-act="refuelfree">Hacer</button>');
     row('🏠','Punto de reaparición','Si caes, reapareces aquí (pierdes 1/6 de créditos).','<div class="rBuy maxed">ACTIVO</div>');
   }
   if(kind==='food'||kind==='arms'||kind==='upg'||kind==='ships'){
@@ -707,8 +733,8 @@ function openShop(kind){
   L.querySelectorAll('[data-act]').forEach(b=>b.onclick=()=>shopAction(b.dataset.act,kind));
   L.querySelectorAll('[data-up]').forEach(b=>b.onclick=()=>{const k=b.dataset.up,c=upgCost(k);if(credits>=c&&upgrades[k]<MAXLVL){credits-=c;upgrades[k]++;recomputeStats();sfx.ui();toast('Mejora: '+UPG_DEFS.find(u=>u.key===k).name);refreshHUD();openShop(kind);}});
   L.querySelectorAll('[data-sell]').forEach(b=>b.onclick=()=>{const k=b.dataset.sell;if(inv[k]>0){credits+=inv[k]*SELL[k];toast('Vendido +'+(inv[k]*SELL[k])+'⬡');inv[k]=0;sfx.ui();refreshHUD();openShop(kind);}});
-  L.querySelectorAll('[data-buyship]').forEach(b=>b.onclick=()=>{const i=+b.dataset.buyship;if(credits>=SHIPS[i].price){credits-=SHIPS[i].price;ownedShips.add(i);curShip=i;recomputeStats();sfx.pickup();toast('Compraste '+SHIPS[i].name);refreshHUD();openShop(kind);}});
-  L.querySelectorAll('[data-useship]').forEach(b=>b.onclick=()=>{curShip=+b.dataset.useship;recomputeStats();sfx.ui();openShop(kind);});
+  L.querySelectorAll('[data-buyship]').forEach(b=>b.onclick=()=>{const i=+b.dataset.buyship;if(credits>=SHIPS[i].price){credits-=SHIPS[i].price;ownedShips.add(i);curShip=i;recomputeStats();rebuildShipVisual();sfx.pickup();toast('Compraste '+SHIPS[i].name);refreshHUD();openShop(kind);}});
+  L.querySelectorAll('[data-useship]').forEach(b=>b.onclick=()=>{curShip=+b.dataset.useship;recomputeStats();rebuildShipVisual();sfx.ui();toast('Nave en uso: '+SHIPS[curShip].name);openShop(kind);});
   $('shop').style.display='flex';shootHeld=false;updateModal();sfx.ui();
 }
 function shopAction(act,kind){
@@ -717,6 +743,9 @@ function shopAction(act,kind){
   else if(act==='buybomb'){if(credits>=120){credits-=120;inv.bomb++;sfx.ui();}}
   else if(act==='bribe'){if(wanted>0&&credits>=200){credits-=200;wanted=clamp(wanted-1,0,5);updateWanted();sfx.ui();toast('Soborno pagado · -1 estrella');}}
   else if(act==='rest'){P.health=P.maxHealth;P.shield=P.maxShield;sfx.pickup();toast('Descansaste · vida y escudo al máximo');}
+  else if(act==='buyammo'){if(credits>=50){credits-=50;inv.ammo+=40;sfx.ui();}}
+  else if(act==='buyfuel'){if(credits>=60){credits-=60;P.fuel=P.maxFuel;sfx.ui();}}
+  else if(act==='refuelfree'){P.fuel=P.maxFuel;inv.ammo+=30;sfx.pickup();toast('⛽ Repostado y rearmado');}
   else if(act==='steal'){let got='algo';
     if(kind==='food'){inv.food++;got='una ración';}
     else if(kind==='arms'){inv.bomb++;got='una bomba';}
@@ -748,6 +777,8 @@ function renderMenu(){
     row('🔆','Núcleos de energía','Se recogen en planetas.','× '+inv.core);
     row('🍔','Comida','Restaura vida/escudo.','× '+inv.food);
     row('💣','Bombas','Destruyen lunas.','× '+inv.bomb);
+    row('🔫','Munición','Balas de la nave.','× '+inv.ammo);
+    row('⛽','Gasolina','Combustible de la nave.',Math.round(P.fuel)+' / '+P.maxFuel);
     row('🪐','Planetas','Descubiertos / total.',discovered.size+' / '+PLANET_DEFS.length);
   }else if(menuTab==='map'){
     B.innerHTML='<div id="mapLegend2" style="font-size:11px;color:#9fc3d4;margin-bottom:10px"></div><canvas id="mapCanvas2" width="560" height="560" style="display:block;width:100%;border-radius:12px;border:1px solid var(--line);background:#05080f"></canvas>';
@@ -805,7 +836,7 @@ function land(planet,moon){
   astro.position.set(0,0,-150);surfVel.set(0,0,0);sHeading=0;mode=MODE.SURFACE;
   if(!moon){visited.add(PLANET_DEFS[surfPlanetIndex].name);}discovered.add(PLANET_DEFS[surfPlanetIndex].name);
   // historia: viajar a Xandar
-  if(STORY[storyStep]&&STORY[storyStep].kind==='travelXandar'&&PLANET_DEFS[surfPlanetIndex].name==='Xandar')advanceStory();
+  if(STORY[storyStep]&&STORY[storyStep].kind==='travel'&&PLANET_DEFS[surfPlanetIndex].name===STORY[storyStep].destName)advanceStory();
   setControls();$('modeVal').textContent=(moon?'Luna de ':'')+PLANET_DEFS[surfPlanetIndex].name;$('modeLabel').textContent='En tierra';
   $('cross').style.display='block';toggleTouchButtons(false);
   toast((moon?'🛰️ Estación lunar · ':'🛬 Aterrizaste en ')+PLANET_DEFS[surfPlanetIndex].name);sfx.ui();saveGame(true);
@@ -823,7 +854,9 @@ function setControls(){$('controls').innerHTML=(mode===MODE.SURFACE)
   :'<div><b>Ratón</b> girar · <b>W/S</b> vel · <b>A/D</b> inclinar</div><div><b>Clic/Espacio</b> disparar · <b>B</b> bomba · <b>E</b> aterrizar</div>';}
 function refreshHUD(){$('creditsVal').textContent=credits;
   $('shieldBar').style.width=clamp(P.shield/P.maxShield*100,0,100)+'%';
-  $('healthBar').style.width=clamp(P.health/P.maxHealth*100,0,100)+'%';}
+  $('healthBar').style.width=clamp(P.health/P.maxHealth*100,0,100)+'%';
+  const fb=$('fuelBar');if(fb)fb.style.width=clamp(P.fuel/P.maxFuel*100,0,100)+'%';
+  const a=$('ammoVal');if(a)a.textContent=inv.ammo;const bv=$('bombVal');if(bv)bv.textContent=inv.bomb;}
 function updateWanted(){const w=$('wanted');if(wanted>0){w.style.display='block';$('wantedVal').textContent='★'.repeat(wanted)+'☆'.repeat(5-wanted);}else w.style.display='none';}
 function addWanted(n,reason){wanted=clamp(wanted+n,0,5);wantedTimer=0;updateWanted();if(reason)toast('⚠️ '+reason+' · Buscado nivel '+wanted);}
 let toastT=0;function toast(t){$('toast').textContent=t;$('toast').classList.add('show');toastT=3.2;}
@@ -840,10 +873,14 @@ function updateSpace(dt){
     else{const mx=Math.abs(mouseX)<0.12?0:mouseX,my=Math.abs(mouseY)<0.12?0:mouseY;ship.rotateY(-mx*turn);ship.rotateX(-my*turn);}
     if(keys['KeyA'])ship.rotateZ(1.6*dt);if(keys['KeyD'])ship.rotateZ(-1.6*dt);
     let cruise=130;if(keys['KeyW']||boostHeld)cruise=stat.maxSpeed*0.85;else if(keys['KeyS'])cruise=40;
-    speed+=(cruise-speed)*Math.min(1,dt*1.4);speed=clamp(speed,30,stat.maxSpeed);}
+    if(P.fuel<=0)cruise=Math.min(cruise,48); // sin gasolina: solo a duras penas
+    speed+=(cruise-speed)*Math.min(1,dt*1.4);speed=clamp(speed,30,stat.maxSpeed);
+    // consumo de gasolina
+    const use=(keys['KeyW']||boostHeld)?2.4:(speed>140?1.0:0.35);
+    if(P.fuel>0){const before=P.fuel;P.fuel=clamp(P.fuel-use*dt,0,P.maxFuel);if(before>20&&P.fuel<=20)toast('⛽ Poca gasolina · repón en una tienda de Armas o en tu Base');if(before>0&&P.fuel<=0)toast('⛽ ¡Sin gasolina! Llega a un planeta para repostar');}}
   const fwd=V3(0,0,-1).applyQuaternion(ship.quaternion);shipVel.copy(fwd).multiplyScalar(speed);ship.position.addScaledVector(shipVel,dt);
   ship.userData.engineGlow.scale.setScalar(8+speed*0.03+Math.sin(now()*.02)*1.5);
-  shootCD-=dt;if(shootHeld&&shootCD<=0&&!modalOpen){fireBullet();shootCD=stat.fireRate;}
+  shootCD-=dt;if(shootHeld&&shootCD<=0&&!modalOpen){if(inv.ammo>0){fireBullet();inv.ammo--;shootCD=stat.fireRate;refreshHUD();}else{shootCD=0.45;beep(120,0.05,'square',0.03);}}
   if(bombQueued){bombQueued=false;if(!modalOpen)launchBomb();}
   // regen escudo
   if(now()-P.lastHit>3000&&P.shield<P.maxShield)P.shield=clamp(P.shield+2.6*dt,0,P.maxShield);
@@ -858,15 +895,14 @@ function updateSpace(dt){
   for(let i=bullets.length-1;i>=0;i--){const b=bullets[i];b.position.addScaledVector(b.userData.vel,dt);b.userData.life-=dt;let hit=false;
     // bomba: impacto con luna
     if(b.userData.bomb){for(const mo of moons){if(!mo.alive)continue;const wp=moonWorldPos(mo);if(b.position.distanceTo(wp)<mo.r+14){
-      mo.alive=false;mo.mesh.visible=false;explode(spaceScene,wp,'rgba(255,120,60,1)',26,true);sfx.boom();addWanted(3,'¡Destruiste una luna!');hit=true;break;}}}
+      mo.alive=false;mo.mesh.visible=false;explode(spaceScene,wp,'rgba(255,120,60,1)',26,true);sfx.boom();addWanted(3,'¡Destruiste una luna!');storyTick('moon');hit=true;break;}}}
     if(!hit)for(let j=asteroids.length-1;j>=0;j--){const a=asteroids[j];if(b.position.distanceTo(a.position)<a.userData.r+(b.userData.bomb?16:2)){
-      explode(spaceScene,a.position,'rgba(255,170,80,1)',b.userData.bomb?22:14,b.userData.bomb);spaceScene.remove(a);asteroids.splice(j,1);spawnAsteroid(false);kills++;bump('destroy');if(b.userData.bomb)sfx.boom();hit=true;break;}}
+      explode(spaceScene,a.position,'rgba(255,170,80,1)',b.userData.bomb?22:14,b.userData.bomb);spaceScene.remove(a);asteroids.splice(j,1);spawnAsteroid(false);kills++;bump('destroy');storyTick('destroy');if(b.userData.bomb)sfx.boom();hit=true;break;}}
     if(!hit)for(let j=enemies.length-1;j>=0;j--){const en=enemies[j];if(b.position.distanceTo(en.position)<(en.userData.boss?34:16)){
       en.userData.hp-=(b.userData.bomb?10:1);explode(spaceScene,b.position,'rgba(255,200,120,1)',6);hit=true;
       if(en.userData.hp<=0){const wasBoss=en.userData.boss,fac=en.userData.faction;explode(spaceScene,en.position,'rgba(255,120,60,1)',20,wasBoss);sfx.boom();
         spaceScene.remove(en);enemies.splice(j,1);credits+=wasBoss?500:40;
-        if(fac==='xandar'){if(STORY[storyStep]&&STORY[storyStep].kind==='xandarKill'){STORY[storyStep]._p=(STORY[storyStep]._p||0)+1;if(STORY[storyStep]._p>=STORY[storyStep].goal)advanceStory();}
-          if(wasBoss&&STORY[storyStep]&&STORY[storyStep].kind==='boss')advanceStory();}
+        if(fac==='xandar'){if(wasBoss)storyTick('boss');else storyTick('xandar');}
         refreshHUD();}break;}}
     if(hit||b.userData.life<=0){spaceScene.remove(b);bullets.splice(i,1);}}
   // balas enemigas
@@ -890,7 +926,7 @@ function updateSpace(dt){
   recycle(asteroids,2200,spawnAsteroid);
   // cristales
   for(let i=crystals.length-1;i>=0;i--){const c=crystals[i];c.rotation.y+=c.userData.spin*dt;c.position.y+=Math.sin(now()*.001+c.userData.bob)*0.06;
-    if(c.position.distanceTo(ship.position)<stat.pickup){inv.crystal++;explode(spaceScene,c.position,'rgba(43,255,155,1)',10);sfx.pickup();spaceScene.remove(c);crystals.splice(i,1);spawnCrystal(false);bump('collect');refreshHUD();}}
+    if(c.position.distanceTo(ship.position)<stat.pickup){inv.crystal++;explode(spaceScene,c.position,'rgba(43,255,155,1)',10);sfx.pickup();spaceScene.remove(c);crystals.splice(i,1);spawnCrystal(false);bump('collect');storyTick('collect');refreshHUD();}}
   recycle(crystals,2200,spawnCrystal);
   updateParticles(spaceScene,dt);
   // lunas orbitando
@@ -953,18 +989,24 @@ function updateSurface(dt){
   if(now()-P.lastHit>5000&&P.health<P.maxHealth)P.health=clamp(P.health+4*dt,0,P.maxHealth);
   refreshHUD();
   surfCores.forEach(c=>{c.rotation.y+=dt*2;c.position.y=6+Math.sin(now()*.002+c.userData.bob)*1.5;});
-  surfNPCObjs.forEach(no=>{no.obj.position.y=Math.sin(now()*.0015+no.idx)*0.6;});
+  surfNPCObjs.forEach(no=>{if(no.dead){no.obj.visible=false;no.label.visible=false;return;}no.obj.position.y=Math.sin(now()*.0015+no.idx)*0.6;
+    const dx=astro.position.x-no.obj.position.x,dz=astro.position.z-no.obj.position.z;if(dx*dx+dz*dz<40000)no.obj.rotation.y=Math.atan2(dx,dz);});
   surfShip.position.y=8+Math.sin(now()*.001)*1.2;surfBeacons.forEach(b=>b.material.opacity=0.3+Math.sin(now()*.003+b.position.x)*0.15);
-  companions.forEach(c=>{const target=astro.position.clone().addScaledVector(V3(Math.sin(sHeading),0,Math.cos(sHeading)),-30);target.y=12+Math.sin(now()*.003)*3;c.position.lerp(target,clamp(dt*3,0,1));c.rotation.y+=dt;});
+  companions.forEach(c=>{const target=astro.position.clone().addScaledVector(V3(Math.sin(sHeading),0,Math.cos(sHeading)),-30);target.y=12+Math.sin(now()*.003)*3;c.position.lerp(target,clamp(dt*3,0,1));c.rotation.y+=dt;
+    c.userData.cd=(c.userData.cd||0)-dt;let tgt=null,td=1e9;hunters.forEach(h=>{const dd=h.obj.position.distanceTo(c.position);if(dd<td){td=dd;tgt=h;}});
+    if(tgt&&td<260&&c.userData.cd<=0){c.userData.cd=0.5;const dir=tgt.obj.position.clone().add(V3(0,10,0)).sub(c.position).normalize();
+      const b=new THREE.Mesh(new THREE.SphereGeometry(1,8,8),new THREE.MeshBasicMaterial({color:0x22e9ff}));b.position.copy(c.position);b.userData={vel:dir.multiplyScalar(220),life:2,friend:true};
+      const g=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(34,233,255,1)'),blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));g.scale.setScalar(7);b.add(g);surfScene.add(b);footBullets.push(b);beep(700,0.06,'square',0.03,300);}});
   // núcleos
-  for(let i=surfCores.length-1;i>=0;i--){const c=surfCores[i];if(Math.hypot(c.position.x-astro.position.x,c.position.z-astro.position.z)<14){
-    inv.core++;explode(surfScene,c.position,'rgba(255,210,74,1)',10);sfx.pickup();surfScene.remove(c);surfCores.splice(i,1);spawnSurfaceCore();bump('surface');refreshHUD();}}
+  for(let i=surfCores.length-1;i>=0;i--){const c=surfCores[i];let grab=Math.hypot(c.position.x-astro.position.x,c.position.z-astro.position.z)<14;
+    if(!grab)for(const cp of companions){if(c.position.distanceTo(cp.position)<46){grab=true;break;}}
+    if(grab){inv.core++;explode(surfScene,c.position,'rgba(255,210,74,1)',10);sfx.pickup();surfScene.remove(c);surfCores.splice(i,1);spawnSurfaceCore();bump('surface');storyTick('surface');refreshHUD();}}
   // cazarrecompensas si te buscan
   if(wanted>0&&hunters.length<Math.min(wanted,2)&&Math.random()<0.01)spawnHunter();
   updateHunters(dt);updateFootBullets(dt);updateParticles(surfScene,dt);
   // interacción
   nearTarget=null;let best=1e9;
-  surfNPCObjs.forEach(no=>{const d=Math.hypot(no.obj.position.x-astro.position.x,no.obj.position.z-astro.position.z);if(d<34&&d<best){best=d;nearTarget={kind:'npc',idx:no.idx};}});
+  surfNPCObjs.forEach(no=>{if(no.dead)return;const d=Math.hypot(no.obj.position.x-astro.position.x,no.obj.position.z-astro.position.z);if(d<34&&d<best){best=d;nearTarget={kind:'npc',idx:no.idx};}});
   surfBuildings.forEach(b=>{if(!b.visible)return;const d=Math.hypot(b.position.x-astro.position.x,b.position.z-astro.position.z);if(d<40&&d<best){best=d;nearTarget={kind:'shop',shop:b.userData.shop};}});
   {const d=Math.hypot(surfShip.position.x-astro.position.x,surfShip.position.z-astro.position.z);if(d<46&&d<best){best=d;nearTarget={kind:'ship'};}}
   const hint=$('hint');
@@ -975,9 +1017,12 @@ function footShoot(){const fwd=V3(Math.sin(sHeading),0,Math.cos(sHeading));
   const b=new THREE.Mesh(new THREE.SphereGeometry(1.2,8,8),new THREE.MeshBasicMaterial({color:0xffd24a}));b.position.copy(astro.position).add(V3(0,12,0)).addScaledVector(fwd,6);
   b.userData={vel:fwd.clone().multiplyScalar(220),life:2};const g=new THREE.Sprite(new THREE.SpriteMaterial({map:glowTexture('rgba(255,210,74,1)'),blending:THREE.AdditiveBlending,transparent:true,depthWrite:false}));g.scale.setScalar(8);b.add(g);
   surfScene.add(b);footBullets.push(b);sfx.blaster();}
-function updateFootBullets(dt){for(let i=footBullets.length-1;i>=0;i--){const b=footBullets[i];b.position.addScaledVector(b.userData.vel,dt);b.userData.life-=dt;let hit=false;
+function updateFootBullets(dt){for(let i=footBullets.length-1;i>=0;i--){const b=footBullets[i];if(b.userData.enemy)continue;
+  b.position.addScaledVector(b.userData.vel,dt);b.userData.life-=dt;let hit=false;
   for(let j=hunters.length-1;j>=0;j--){const h=hunters[j];if(b.position.distanceTo(h.obj.position.clone().add(V3(0,10,0)))<10){h.hp--;explode(surfScene,b.position,'rgba(255,200,120,1)',5);hit=true;
     if(h.hp<=0){explode(surfScene,h.obj.position,'rgba(255,120,60,1)',14);sfx.boom();surfScene.remove(h.obj);hunters.splice(j,1);credits+=30;refreshHUD();}break;}}
+  if(!hit&&!b.userData.friend){for(const no of surfNPCObjs){if(no.dead)continue;if(b.position.distanceTo(no.obj.position.clone().add(V3(0,10,0)))<11){
+    no.dead=true;no.obj.visible=false;no.label.visible=false;explode(surfScene,no.obj.position,'rgba(255,120,60,1)',14);sfx.boom();addWanted(2,'¡Mataste a un habitante!');hit=true;break;}}}
   if(hit||b.userData.life<=0){surfScene.remove(b);footBullets.splice(i,1);}}}
 function spawnHunter(){const o=makePerson(0xff5a4a,true);const a=rand(0,7);o.position.set(Math.cos(a)*300,0,Math.sin(a)*300);surfScene.add(o);
   hunters.push({obj:o,hp:4,shootCD:rand(1,2)});toast('🎯 ¡Un cazarrecompensas te busca!');}
@@ -1023,7 +1068,7 @@ const SAVE_KEY='ee_save_v4';
 function saveGame(silent){
   try{const data={credits,kills,missionsDone,galaxy,wanted,storyStep,inv:{...inv},upgrades:{...upgrades},
     ownedShips:[...ownedShips],curShip,suitColor,visited:[...visited],discovered:[...discovered],
-    health:P.health,shield:P.shield,story_p:STORY.map(s=>s._p||0),
+    health:P.health,shield:P.shield,fuel:P.fuel,story_p:STORY.map(s=>s._p||0),
     missions:missions.map(m=>({type:m.type,progress:m.progress,goal:m.goal,reward:m.reward,desc:m.desc,destName:m.dest?m.dest.userData.def.name:null}))};
     localStorage.setItem(SAVE_KEY,JSON.stringify(data));if(!silent)toast('💾 Progreso guardado');}
   catch(e){if(!silent)toast('No se pudo guardar (abre el archivo descargado para que funcione)');}
@@ -1037,7 +1082,7 @@ function loadGame(){
   ownedShips=new Set(data.ownedShips||[0]);curShip=data.curShip||0;suitColor=data.suitColor||0xffd24a;
   visited=new Set(data.visited||[]);discovered=new Set(data.discovered||[]);
   STORY.forEach((s,i)=>{s._p=(data.story_p&&data.story_p[i])||0;});
-  recomputeStats();P.maxHealth=100;P.maxShield=stat.maxShield;P.health=clamp(data.health||100,1,P.maxHealth);P.shield=clamp(data.shield||P.maxShield,0,P.maxShield);P.lastHit=-9999;
+  recomputeStats();P.maxHealth=100;P.maxShield=stat.maxShield;P.health=clamp(data.health||100,1,P.maxHealth);P.shield=clamp(data.shield||P.maxShield,0,P.maxShield);P.fuel=clamp(data.fuel||P.maxFuel,8,P.maxFuel);P.lastHit=-9999;rebuildShipVisual();
   missions=(data.missions||[]).map(m=>{const mm={type:m.type,progress:m.progress,goal:m.goal,reward:m.reward,desc:m.desc};if(m.destName)mm.dest=planets.find(p=>p.userData.def.name===m.destName);return mm;});
   [bullets,particles,enemies,enemyBullets,companions,footBullets].forEach(arr=>{arr.forEach(o=>{const m=o.obj||o;if(m&&m.parent)m.parent.remove(m);});arr.length=0;});
   hunters.forEach(h=>{if(h.obj&&h.obj.parent)h.obj.parent.remove(h.obj);});hunters.length=0;
@@ -1053,9 +1098,9 @@ function startGame(){
   audioInit();
   credits=0;kills=0;missionsDone=0;visited=new Set();discovered=new Set();galaxy=1;wanted=0;storyStep=0;missions=[];
   STORY.forEach(s=>{s._p=0;});
-  inv.crystal=0;inv.core=0;inv.food=1;inv.bomb=2;ownedShips=new Set([0]);curShip=0;suitColor=0xffd24a;
-  upgrades.shield=upgrades.engine=upgrades.cannon=upgrades.collector=0;recomputeStats();
-  P.health=P.maxHealth=100;P.shield=P.maxShield=stat.maxShield;P.lastHit=-9999;
+  inv.crystal=0;inv.core=0;inv.food=1;inv.bomb=2;inv.ammo=40;ownedShips=new Set([0]);curShip=0;suitColor=0xffd24a;
+  upgrades.shield=upgrades.engine=upgrades.cannon=upgrades.collector=0;recomputeStats();rebuildShipVisual();
+  P.health=P.maxHealth=100;P.shield=P.maxShield=stat.maxShield;P.fuel=P.maxFuel=100;P.lastHit=-9999;
   shipVel.set(0,0,0);speed=150;ship.position.set(0,0,500);ship.quaternion.identity();spaceScene.rotation.y=0;
   [bullets,particles,enemies,enemyBullets,companions,footBullets].forEach(arr=>{arr.forEach(o=>{const m=o.obj||o;if(m&&m.parent)m.parent.remove(m);});arr.length=0;});
   hunters.forEach(h=>{if(h.obj&&h.obj.parent)h.obj.parent.remove(h.obj);});hunters.length=0;
@@ -1081,7 +1126,7 @@ function init(){
   if(typeof THREE==='undefined'){document.body.innerHTML='<div style="color:#fff;font-family:monospace;padding:40px;text-align:center">No se pudo cargar Three.js (necesita internet la primera vez).<br>Conéctate a internet y recarga.</div>';return;}
   clock=new THREE.Clock();camera=new THREE.PerspectiveCamera(70,innerWidth/innerHeight,0.5,13000);
   renderer=new THREE.WebGLRenderer({canvas:$('scene'),antialias:true});renderer.setPixelRatio(Math.min(devicePixelRatio,2));renderer.setSize(innerWidth,innerHeight);
-  buildSpace();buildSurface();recomputeStats();refreshHUD();setControls();
+  buildSpace();buildSurface();STORY=buildStory();recomputeStats();refreshHUD();setControls();
   if(isTouch)$('touchUI').style.display='block';
   if(hasSave())$('continueBtn').style.display='inline-block';
   loop();
